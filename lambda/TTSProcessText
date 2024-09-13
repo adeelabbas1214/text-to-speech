@@ -1,0 +1,40 @@
+import boto3
+import json
+import uuid
+
+dynamodb = boto3.resource('dynamodb')
+sns = boto3.client('sns')
+
+def lambda_handler(event, context):
+    # Log the event for debugging
+    print(f"Received event: {json.dumps(event)}")
+    
+    # Ensure 'body' exists in the event
+    if 'body' not in event:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'error': 'Request body not found'})
+        }
+    
+    text = event['body']  # Assuming text is sent in the body of the request
+    post_id = str(uuid.uuid4())  # Generate unique ID for the post
+    
+    # Store metadata in DynamoDB
+    table = dynamodb.Table('Posts')
+    table.put_item(Item={
+        'PostId': post_id,
+        'Status': 'Processing',
+        'Text': text
+    })
+    
+    # Publish message to SNS
+    sns.publish(
+        TopicArn='arn:aws:sns:us-east-1:767397821804:TTSNotifications',
+        Message=json.dumps({'PostId': post_id}),
+        Subject='New Post for TTS'
+    )
+    
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'message': 'Post received', 'PostId': post_id})
+    }
