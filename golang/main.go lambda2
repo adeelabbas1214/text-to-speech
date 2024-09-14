@@ -1,0 +1,46 @@
+const AWS = require('aws-sdk');
+const polly = new AWS.Polly();
+const s3 = new AWS.S3();
+const dynamodb = new AWS.DynamoDB.DocumentClient();
+
+exports.handler = async (event) => {
+    const message = JSON.parse(event.Records[0].Sns.Message);
+    const postId = message.PostId;
+
+    const { Item } = await dynamodb.get({
+        TableName: 'Posts',
+        Key: { PostId: postId }
+    }).promise();
+
+    const text = Item.Text;
+
+    const pollyResponse = await polly.synthesizeSpeech({
+        Text: text,
+        OutputFormat: 'mp3',
+        VoiceId: 'Joanna'
+    }).promise();
+
+    await s3.putObject({
+        Bucket: 'tts-mp3-files',
+        Key: `${postId}.mp3`,
+        Body: pollyResponse.AudioStream,
+        ContentType: 'audio/mpeg'
+    }).promise();
+
+    const mp3Url = `https://tts-mp3-files.s3.amazonaws.com/${postId}.mp3`;
+
+    await dynamodb.update({
+        TableName: 'Posts',
+        Key: { PostId: postId },
+        UpdateExpression: 'SET MP3Url = :url, Status = :status',
+        ExpressionAttributeValues: {
+            ':url': mp3Url,
+            ':status': 'Completed'
+        }
+    }).promise();
+
+    return {
+        statusCode: 200,
+        body: JSON.stringify({ MP3Url: mp3Url })
+    };
+};
